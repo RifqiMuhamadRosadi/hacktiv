@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import multer from "multer";
+import cors from "cors";
 import fs from "fs/promises";
 import { GoogleGenAI } from "@google/genai";
 import { MIMEType } from "util";
@@ -11,9 +12,41 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const GEMINI_MODEL = "gemini-2.5-flash-lite";
 
+app.use(cors());
 app.use(express.json());
+app.use(express.static("public"));
 
 const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`Server ready on http://localhost:${PORT}`);
+});
+
+app.post("/api/chat", async (req, res) => {
+  const { conversation } = req.body;
+  try {
+    if (!Array.isArray(conversation))
+      throw new Error("Messages must be an array!");
+
+    const contents = conversation.map(({ role, text }) => ({
+      role,
+      parts: [{ text }],
+    }));
+
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents,
+      config: {
+        temperature: 0.7,
+        systemInstruction:
+          "Kamu adalah asisten customer service yang profesional, sangat sopan, dan ramah. Selalu gunakan bahasa Indonesia yang baku tapi hangat. Gunakan sapaan (kak). Jika kamu tidak mengetahui jawabannya atau di luar kapasitasmu, mohon maaf dengan sopan dan tawarkan bantuan lain.",
+      },
+    });
+
+    res.status(200).json({ result: response.text });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.post("/generate-text", async (req, res) => {
   const { prompt } = req.body;
@@ -53,46 +86,52 @@ app.post("/generate-from-image", upload.single("image"), async (req, res) => {
   }
 });
 
-app.post("/generate-from-document", upload.single("document"), async (req, res) => {
+app.post(
+  "/generate-from-document",
+  upload.single("document"),
+  async (req, res) => {
     const { prompt } = req.body;
     const base64Document = req.file.buffer.toString("base64");
 
     try {
-        const response = await ai.models.generateContent({
-            model: GEMINI_MODEL,
-            contents: [
-                { text: prompt ?? "Tolong buat ringkasan dari dokumen berikut.", type: "text" },
-                { inlineData: { data: base64Document, mimeType: req.file.mimetype } }
-            ],
-        });
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [
+          {
+            text: prompt ?? "Tolong buat ringkasan dari dokumen berikut.",
+            type: "text",
+          },
+          { inlineData: { data: base64Document, mimeType: req.file.mimetype } },
+        ],
+      });
 
-        res.status(200).json({ result: response.text });
+      res.status(200).json({ result: response.text });
     } catch (e) {
-        console.log(e);
-        res.status(500).json({ message: e.message });
+      console.log(e);
+      res.status(500).json({ message: e.message });
     }
-});
+  },
+);
 
 app.post("/generate-from-audio", upload.single("audio"), async (req, res) => {
-    const { prompt } = req.body;
-    const base64Audio = req.file.buffer.toString("base64");
+  const { prompt } = req.body;
+  const base64Audio = req.file.buffer.toString("base64");
 
-    try {
-        const response = await ai.models.generateContent({
-            model: GEMINI_MODEL,
-            contents: [
-                { text: prompt ?? "Tolong buatkan transkrip dari rekaman berikut.", type: "text" },
-                { inlineData: { data: base64Audio, mimeType: req.file.mimetype } }
-            ],
-        });
+  try {
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [
+        {
+          text: prompt ?? "Tolong buatkan transkrip dari rekaman berikut.",
+          type: "text",
+        },
+        { inlineData: { data: base64Audio, mimeType: req.file.mimetype } },
+      ],
+    });
 
-        res.status(200).json({ result: response.text });
-    } catch (e) {
-        console.log(e);
-        res.status(500).json({ message: e.message });
-    }
-});
-
-app.listen(PORT, () => {
-  console.log(`Server ready on http://localhost:${PORT}`);
+    res.status(200).json({ result: response.text });
+  } catch (e) {
+    console.log(e);
+    res.status(500).json({ message: e.message });
+  }
 });
